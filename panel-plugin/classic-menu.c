@@ -9,6 +9,7 @@
 #include <libxfce4ui/libxfce4ui.h>
 #include <libxfce4util/libxfce4util.h>
 #include <garcon/garcon.h>
+#include <exo/exo.h>
 
 #include "classic-menu.h"
 
@@ -18,6 +19,8 @@ typedef struct {
 
     GtkWidget        *menubar;
     GtkWidget        *applications_item;
+    GtkWidget        *applications_icon;
+    gchar            *icon_name;
     GtkWidget        *places_item;
     GtkWidget        *system_item;
 
@@ -29,6 +32,8 @@ ClassicMenuPlugin;
 /* Config key names */
 #define CONFIG_GROUP        "classic-menu"
 #define KEY_DRILLDOWN_MODE  "drilldown-mode"
+#define KEY_ICON_NAME       "applications-icon"
+#define DEFAULT_ICON_NAME   "start-here"
 
 /* Forward declarations */
 static void     classic_menu_construct(          XfcePanelPlugin *plugin);
@@ -47,6 +52,7 @@ classic_menu_config_load(ClassicMenuPlugin *menu)
 
     /* Sensible defaults */
     menu->config.drilldown_mode = DRILLDOWN_FOLDERS_ONLY;
+    menu->icon_name = g_strdup(DEFAULT_ICON_NAME);
 
     path = xfce_panel_plugin_lookup_rc_file(menu->plugin);
     if (path == NULL) {
@@ -60,6 +66,13 @@ classic_menu_config_load(ClassicMenuPlugin *menu)
     }
 
     xfce_rc_set_group(rc, CONFIG_GROUP);
+    {
+        const gchar *icon = xfce_rc_read_entry(rc, KEY_ICON_NAME, DEFAULT_ICON_NAME);
+        if (icon != NULL && *icon != '\0') {
+            g_free(menu->icon_name);
+            menu->icon_name = g_strdup(icon);
+        }
+    }
     menu->config.drilldown_mode = (DrillDownMode)
         xfce_rc_read_int_entry(rc, KEY_DRILLDOWN_MODE, DRILLDOWN_FOLDERS_ONLY);
 
@@ -86,8 +99,49 @@ classic_menu_config_save(ClassicMenuPlugin *menu)
     xfce_rc_set_group(rc, CONFIG_GROUP);
     xfce_rc_write_int_entry(rc, KEY_DRILLDOWN_MODE,
                             (gint) menu->config.drilldown_mode);
+    xfce_rc_write_entry(rc, KEY_ICON_NAME, menu->icon_name);
 
     xfce_rc_close(rc);
+}
+
+static void
+classic_menu_update_icon(ClassicMenuPlugin *menu)
+{
+    if (g_path_is_absolute(menu->icon_name)) {
+        gtk_image_set_from_file(GTK_IMAGE(menu->applications_icon),
+                                menu->icon_name);
+    } else {
+        gtk_image_set_from_icon_name(GTK_IMAGE(menu->applications_icon),
+                                     menu->icon_name, GTK_ICON_SIZE_MENU);
+    }
+    gtk_image_set_pixel_size(GTK_IMAGE(menu->applications_icon), 18);
+}
+
+static void
+on_icon_button_clicked(GtkButton *button, gpointer user_data)
+{
+    ClassicMenuPlugin *menu = user_data;
+    GtkWindow *parent = GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(button)));
+    GtkWidget *chooser = exo_icon_chooser_dialog_new(
+            "Choose Applications Icon", parent,
+            "_Cancel", GTK_RESPONSE_CANCEL,
+            "_Select", GTK_RESPONSE_ACCEPT, NULL);
+
+    exo_icon_chooser_dialog_set_icon(EXO_ICON_CHOOSER_DIALOG(chooser),
+                                     menu->icon_name);
+    if (gtk_dialog_run(GTK_DIALOG(chooser)) == GTK_RESPONSE_ACCEPT) {
+        gchar *icon = exo_icon_chooser_dialog_get_icon(
+                EXO_ICON_CHOOSER_DIALOG(chooser));
+        if (icon != NULL && *icon != '\0') {
+            g_free(menu->icon_name);
+            menu->icon_name = icon;
+            classic_menu_update_icon(menu);
+            classic_menu_config_save(menu);
+        } else {
+            g_free(icon);
+        }
+    }
+    gtk_widget_destroy(chooser);
 }
 
 /* ── Properties dialog ──────────────────────────────────────────────────── */
@@ -119,6 +173,7 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
     GtkWidget *grid;
     GtkWidget *label;
     GtkWidget *combo;
+    GtkWidget *icon_button;
 
     xfce_panel_plugin_block_menu(plugin);
 
@@ -162,6 +217,14 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
             GTK_COMBO_BOX(combo), (gint) menu->config.drilldown_mode
         );
     gtk_grid_attach(GTK_GRID(grid), combo, 1, 0, 1, 1);
+
+    label = gtk_label_new("Applications icon:");
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+    gtk_grid_attach(GTK_GRID(grid), label, 0, 1, 1, 1);
+    icon_button = gtk_button_new_with_label("Choose Icon...");
+    gtk_grid_attach(GTK_GRID(grid), icon_button, 1, 1, 1, 1);
+    g_signal_connect(icon_button, "clicked",
+                     G_CALLBACK(on_icon_button_clicked), menu);
 
     g_signal_connect(
             G_OBJECT(combo), "changed",
@@ -214,7 +277,16 @@ classic_menu_construct(XfcePanelPlugin *plugin)
     xfce_panel_plugin_add_action_widget(plugin, menu->menubar);
 
     /* Applications */
-    menu->applications_item = gtk_menu_item_new_with_label("Applications");
+    menu->applications_item = gtk_menu_item_new();
+    {
+        GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+        GtkWidget *label = gtk_label_new("Applications");
+        menu->applications_icon = gtk_image_new();
+        classic_menu_update_icon(menu);
+        gtk_box_pack_start(GTK_BOX(box), menu->applications_icon, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(box), label, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(menu->applications_item), box);
+    }
     applications_menu       = build_applications_menu(&menu->garcon_menu);
     gtk_menu_item_set_submenu(
             GTK_MENU_ITEM(menu->applications_item),
@@ -284,6 +356,7 @@ classic_menu_free(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
         g_object_unref(menu->garcon_menu);
     }
 
+    g_free(menu->icon_name);
     g_free(menu);
 }
 
