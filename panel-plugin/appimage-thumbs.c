@@ -125,7 +125,7 @@ save_thumbnail(GdkPixbuf   *pixbuf,
 /* ── Background extraction ──────────────────────────────────────────────── */
 
 typedef struct {
-    GtkImage *image;      /* weak-referenced */
+    GWeakRef *image_ref;  /* weak reference; never keeps a menu alive */
     gchar    *path;       /* source AppImage path */
     gchar    *uri;        /* file:// URI of source */
     gchar    *cache_path; /* where to write/read the thumbnail */
@@ -143,7 +143,7 @@ thumb_task_free(ThumbTask *task)
 
 /* Data passed back to the main thread once extraction is done */
 typedef struct {
-    GtkImage  *image;    /* weak-referenced */
+    GWeakRef  *image_ref; /* ownership transferred from worker task */
     GdkPixbuf *pixbuf;   /* may be NULL on failure */
 } ApplyData;
 
@@ -153,10 +153,15 @@ apply_pixbuf_idle(gpointer user_data)
 {
     ApplyData *data = (ApplyData *)user_data;
 
-    /* Only apply if the widget still exists */
-    if (GTK_IS_IMAGE(data->image) && data->pixbuf != NULL) {
-        gtk_image_set_from_pixbuf(data->image, data->pixbuf);
+    /* Obtain a strong reference safely; the menu may already be gone. */
+    GtkImage *image = g_weak_ref_get(data->image_ref);
+    if (image != NULL) {
+        if (data->pixbuf != NULL)
+            gtk_image_set_from_pixbuf(image, data->pixbuf);
+        g_object_unref(image);
     }
+    g_weak_ref_clear(data->image_ref);
+    g_free(data->image_ref);
 
     if (data->pixbuf != NULL) {
         g_object_unref(data->pixbuf);
@@ -277,9 +282,9 @@ done:
 
         /* Fall back to shell rm -rf for the recursive case */
         {
-            gchar *cmd = g_strdup_printf("rm -rf '%s'", tmpdir);
-            g_spawn_command_line_async(cmd, NULL);
-            g_free(cmd);
+            gchar *argv_rm[] = { (gchar *)"rm", (gchar *)"-rf", tmpdir, NULL };
+            g_spawn_async(NULL, argv_rm, NULL, G_SPAWN_SEARCH_PATH,
+                          NULL, NULL, NULL, NULL);
         }
         g_free(tmpdir);
     }
@@ -289,7 +294,7 @@ done:
 
     /* Schedule UI update on the main thread */
     apply          = g_new0(ApplyData, 1);
-    apply->image   = task->image;
+    apply->image_ref = task->image_ref;
     apply->pixbuf  = pixbuf; /* transfer ownership */
     g_idle_add(apply_pixbuf_idle, apply);
 
@@ -346,7 +351,8 @@ appimage_load_icon_async(GtkImage    *image,
     ensure_thread_pool();
 
     task             = g_new0(ThumbTask, 1);
-    task->image      = image;   /* not reffed — we check GTK_IS_IMAGE later */
+    task->image_ref  = g_new0(GWeakRef, 1);
+    g_weak_ref_init(task->image_ref, G_OBJECT(image));
     task->path       = g_strdup(path);
     task->uri        = uri;     /* transfer */
     task->cache_path = cache_path; /* transfer */
