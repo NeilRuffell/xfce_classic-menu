@@ -328,7 +328,6 @@ appimage_load_icon_async(GtkImage    *image,
     gchar      *uri;
     gchar      *cache_path;
     GdkPixbuf  *cached;
-    struct stat  st;
     ThumbTask  *task;
 
     g_return_if_fail(GTK_IS_IMAGE(image));
