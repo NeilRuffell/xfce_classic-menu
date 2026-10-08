@@ -3,6 +3,7 @@
 #include "classic-menu.h"
 #include "appimage-thumbs.h"
 #include <gio/gio.h>
+#include <glib/gstdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -56,7 +57,7 @@ on_place_activate(GtkMenuItem *item, gpointer user_data)
                       (gchar *)"FileManager", (gchar *)uri, NULL };
 
     if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
-                       NULL, NULL, NULL, NULL, &error)) {
+                       NULL, NULL, NULL, &error)) {
         g_warning(
                 "Failed to open location: %s",
                 error ? error->message : "Unknown error"
@@ -714,7 +715,7 @@ on_mount_ready(GObject *source, GAsyncResult *result, gpointer user_data)
                               (gchar *)"FileManager", uri, NULL };
             GError *spawn_error = NULL;
             if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
-                               NULL, NULL, NULL, NULL, &spawn_error)) {
+                               NULL, NULL, NULL, &spawn_error)) {
                 g_warning("Failed to open mounted volume: %s",
                           spawn_error ? spawn_error->message : "unknown");
                 g_clear_error(&spawn_error);
