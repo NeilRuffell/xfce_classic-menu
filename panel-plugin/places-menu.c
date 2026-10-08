@@ -960,6 +960,64 @@ append_gtk_bookmarks(GtkWidget *menu)
     return any;
 }
 
+/* GTK's shared recent-file list, rebuilt when its submenu is opened. */
+static void
+on_recent_document_activate(GtkMenuItem *item, gpointer user_data)
+{
+    const gchar *uri = user_data;
+    GError *error = NULL;
+    if (!g_app_info_launch_default_for_uri(uri, NULL, &error)) {
+        g_warning("Cannot open recent document: %s",
+                  error ? error->message : "unknown error");
+        g_clear_error(&error);
+    }
+}
+
+static void
+on_recent_menu_show(GtkWidget *submenu, gpointer user_data)
+{
+    GList *children = gtk_container_get_children(GTK_CONTAINER(submenu));
+    for (GList *l = children; l != NULL; l = l->next)
+        gtk_widget_destroy(GTK_WIDGET(l->data));
+    g_list_free(children);
+
+    GtkRecentManager *manager = gtk_recent_manager_get_default();
+    GList *items = gtk_recent_manager_get_items(manager);
+    guint count = 0;
+    for (GList *l = items; l != NULL && count < 20; l = l->next) {
+        GtkRecentInfo *info = l->data;
+        if (!gtk_recent_info_exists(info))
+            continue;
+        const gchar *uri = gtk_recent_info_get_uri(info);
+        GtkWidget *entry = create_menu_item_with_icon(
+                gtk_recent_info_get_display_name(info), "document-open-recent");
+        g_signal_connect_data(entry, "activate",
+                G_CALLBACK(on_recent_document_activate), g_strdup(uri),
+                (GClosureNotify)g_free, 0);
+        gtk_menu_shell_append(GTK_MENU_SHELL(submenu), entry);
+        count++;
+    }
+    g_list_free_full(items, (GDestroyNotify)gtk_recent_info_unref);
+    if (count == 0) {
+        GtkWidget *empty = gtk_menu_item_new_with_label("No Recent Documents");
+        gtk_widget_set_sensitive(empty, FALSE);
+        gtk_menu_shell_append(GTK_MENU_SHELL(submenu), empty);
+    }
+    gtk_widget_show_all(submenu);
+}
+
+static void
+append_recent_documents_item(GtkWidget *menu)
+{
+    GtkWidget *item = create_menu_item_with_icon(
+            "Recent Documents", "document-open-recent");
+    GtkWidget *submenu = gtk_menu_new();
+    gtk_menu_set_reserve_toggle_size(GTK_MENU(submenu), FALSE);
+    g_signal_connect(submenu, "show", G_CALLBACK(on_recent_menu_show), NULL);
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), submenu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+}
+
 /* ── Build ──────────────────────────────────────────────────────────────── */
 
 GtkWidget *
@@ -1017,6 +1075,7 @@ build_places_menu(const ClassicMenuConfig *config)
 
     append_computer_item(submenu);
     append_uri_item(submenu, "Network",  "network-workgroup", "network://");
+    append_recent_documents_item(submenu);
 
     sep = gtk_separator_menu_item_new();
     gtk_menu_shell_append(GTK_MENU_SHELL(submenu), sep);
