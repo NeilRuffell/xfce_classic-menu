@@ -321,19 +321,6 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
 /* ── Plugin construction ────────────────────────────────────────────────── */
 
 static void
-on_places_item_activate(GtkMenuItem *item, gpointer user_data)
-{
-    ClassicMenuPlugin *menu = user_data;
-    /* Read current GTK bookmarks whenever Places is reopened. */
-    GtkWidget *places_menu = build_places_menu(&menu->config);
-    gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), places_menu);
-    if (places_menu != NULL) {
-        g_object_set_data(G_OBJECT(places_menu), "activated-time",
-                          GUINT_TO_POINTER(gtk_get_current_event_time()));
-    }
-}
-
-static void
 classic_menu_construct(XfcePanelPlugin *plugin)
 {
     ClassicMenuPlugin *menu;
@@ -383,8 +370,6 @@ classic_menu_construct(XfcePanelPlugin *plugin)
             GTK_MENU_ITEM(menu->places_item),
             places_menu
         );
-    g_signal_connect(G_OBJECT(menu->places_item), "activate",
-                     G_CALLBACK(on_places_item_activate), menu);
     gtk_menu_shell_append(
             GTK_MENU_SHELL(menu->menubar),
             menu->places_item
