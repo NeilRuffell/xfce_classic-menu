@@ -1018,6 +1018,19 @@ append_recent_documents_item(GtkWidget *menu)
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
 }
 
+/* Invoke XFCE's existing file search application if installed. */
+static void
+on_file_search_activate(GtkMenuItem *item, gpointer user_data)
+{
+    gchar *argv[] = { (gchar *)"catfish", NULL };
+    GError *error = NULL;
+    if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
+                       NULL, NULL, NULL, &error)) {
+        g_warning("Cannot launch Catfish: %s", error->message);
+        g_clear_error(&error);
+    }
+}
+
 /* ── Build ──────────────────────────────────────────────────────────────── */
 
 GtkWidget *
@@ -1076,6 +1089,17 @@ build_places_menu(const ClassicMenuConfig *config)
     append_computer_item(submenu);
     append_uri_item(submenu, "Network",  "network-workgroup", "network://");
     append_recent_documents_item(submenu);
+    {
+        gchar *catfish = g_find_program_in_path("catfish");
+        if (catfish != NULL) {
+            GtkWidget *search = create_menu_item_with_icon(
+                    "Search for Files...", "system-search");
+            g_signal_connect(search, "activate",
+                             G_CALLBACK(on_file_search_activate), NULL);
+            gtk_menu_shell_append(GTK_MENU_SHELL(submenu), search);
+            g_free(catfish);
+        }
+    }
 
     sep = gtk_separator_menu_item_new();
     gtk_menu_shell_append(GTK_MENU_SHELL(submenu), sep);
