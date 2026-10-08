@@ -26,6 +26,7 @@ typedef struct {
 
     GarconMenu       *garcon_menu;
     guint             reload_idle_id;
+    gboolean          reloading;
     ClassicMenuConfig config;
 }
 ClassicMenuPlugin;
@@ -152,15 +153,15 @@ classic_menu_reload_idle(gpointer data)
 {
     ClassicMenuPlugin *menu = data;
     menu->reload_idle_id = 0;
+    menu->reloading = TRUE;
     /* Destroy the old GTK menus before reloading the Garcon element tree. */
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->applications_item), NULL);
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->system_item), NULL);
-    g_signal_handlers_disconnect_by_func(menu->garcon_menu,
-                                         G_CALLBACK(classic_menu_reload_idle), menu);
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->applications_item),
                               build_applications_menu(&menu->garcon_menu));
     gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->system_item),
                               build_system_menu(&menu->garcon_menu));
+    menu->reloading = FALSE;
     return G_SOURCE_REMOVE;
 }
 
@@ -168,7 +169,7 @@ static void
 on_garcon_reload_required(GarconMenu *garcon, gpointer user_data)
 {
     ClassicMenuPlugin *menu = user_data;
-    if (menu->reload_idle_id == 0)
+    if (!menu->reloading && menu->reload_idle_id == 0)
         menu->reload_idle_id = g_idle_add(classic_menu_reload_idle, menu);
 }
 
