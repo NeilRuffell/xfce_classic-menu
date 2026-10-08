@@ -18,6 +18,11 @@ typedef enum {
  * back on every change, and passed to each menu builder that needs it. */
 typedef struct {
     DrillDownMode drilldown_mode;
+    gboolean show_applications;
+    gboolean show_places;
+    gboolean show_system;
+    gboolean show_icon;
+    gint icon_size;
 } ClassicMenuConfig;
 
 /* applications-menu.c */
