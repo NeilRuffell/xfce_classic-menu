@@ -259,6 +259,8 @@ on_icon_size_changed(GtkSpinButton *spin, gpointer user_data)
     classic_menu_config_save(menu);
 }
 
+static void on_places_deactivate(GtkWidget *widget, gpointer user_data);
+
 /* Never replace a submenu while GTK is displaying it. A bookmarks event
  * queues a refresh; if Places is open, wait for deactivation. */
 static gboolean
@@ -269,8 +271,10 @@ bookmarks_refresh_idle(gpointer data)
     GtkWidget *current = gtk_menu_item_get_submenu(GTK_MENU_ITEM(menu->places_item));
     if (current != NULL && gtk_widget_get_mapped(current))
         return G_SOURCE_REMOVE;
-    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->places_item),
-                              build_places_menu(&menu->config));
+    GtkWidget *replacement = build_places_menu(&menu->config);
+    g_signal_connect(replacement, "deactivate",
+                     G_CALLBACK(on_places_deactivate), menu);
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->places_item), replacement);
     return G_SOURCE_REMOVE;
 }
 
