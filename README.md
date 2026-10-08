@@ -26,6 +26,12 @@ sudo make install
 xfce4-panel --restart
 ```
 
+## Credits and Development
+
+This project is based on [xfce_classic-menu](https://github.com/8bitprodigy/xfce_classic-menu) by 8bitprodigy. The original author's copyright and permissive license are retained in [LICENSE](LICENSE).
+
+This version adds features, usability improvements, and XFCE desktop integration. Development of these enhancements was assisted by OpenAI's ChatGPT and tested on Linux Mint XFCE.
+
 ## License
 
 This code is released into the public domain.
