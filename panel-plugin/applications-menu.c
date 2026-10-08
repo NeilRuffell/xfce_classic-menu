@@ -29,6 +29,62 @@ on_application_activate(GtkMenuItem *item, gpointer user_data)
     }
 }
 
+/* Match GarconGtkMenu's native Xfce drag protocol. The panel and Thunar
+ * consume text/uri-list containing the application's original .desktop URI. */
+static const GtkTargetEntry launcher_drag_targets[] = {
+    { (gchar *)"text/uri-list", 0, 0 }
+};
+
+static void
+on_launcher_drag_begin(GtkWidget *widget, GdkDragContext *context,
+                       gpointer user_data)
+{
+    GarconMenuItem *item = GARCON_MENU_ITEM(user_data);
+    const gchar *icon = garcon_menu_item_get_icon_name(item);
+    if (icon != NULL && *icon != '\0')
+        gtk_drag_set_icon_name(context, icon, 0, 0);
+}
+
+static void
+on_launcher_drag_data_get(GtkWidget *widget, GdkDragContext *context,
+                          GtkSelectionData *selection, guint info,
+                          guint time, gpointer user_data)
+{
+    GarconMenuItem *item = GARCON_MENU_ITEM(user_data);
+    gchar *uri = garcon_menu_item_get_uri(item);
+    if (uri != NULL) {
+        gchar *uris[] = { uri, NULL };
+        gtk_selection_data_set_uris(selection, uris);
+        g_free(uri);
+    }
+}
+
+static void
+on_launcher_drag_end(GtkWidget *widget, GdkDragContext *context,
+                     gpointer user_data)
+{
+    GtkWidget *parent = gtk_widget_get_parent(widget);
+    if (GTK_IS_MENU(parent))
+        gtk_menu_popdown(GTK_MENU(parent));
+}
+
+static void
+enable_launcher_drag(GtkWidget *widget, GarconMenuItem *item)
+{
+    gtk_drag_source_set(widget, GDK_BUTTON1_MASK, launcher_drag_targets,
+                        G_N_ELEMENTS(launcher_drag_targets), GDK_ACTION_COPY);
+    /* Keep source metadata alive through the drag, independently of the
+     * Garcon menu tree's lifetime. */
+    g_object_set_data_full(G_OBJECT(widget), "launcher-drag-item",
+                           g_object_ref(item), g_object_unref);
+    g_signal_connect(widget, "drag-begin",
+                     G_CALLBACK(on_launcher_drag_begin), item);
+    g_signal_connect(widget, "drag-data-get",
+                     G_CALLBACK(on_launcher_drag_data_get), item);
+    g_signal_connect(widget, "drag-end",
+                     G_CALLBACK(on_launcher_drag_end), NULL);
+}
+
 /* Search/Run dialog callback */
 static void
 on_search_activate(GtkMenuItem *item, gpointer user_data)
@@ -217,6 +273,7 @@ populate_menu_from_elements(GtkWidget *menu, GList *elements, gboolean top_level
                     garcon_item
                 );
 
+            enable_launcher_drag(menu_item, garcon_item);
             gtk_menu_shell_append(GTK_MENU_SHELL(menu), menu_item);
         }
     }
