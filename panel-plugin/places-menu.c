@@ -3,6 +3,7 @@
 #include "classic-menu.h"
 #include "appimage-thumbs.h"
 #include <gio/gio.h>
+#include <glib/gstdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -52,11 +53,11 @@ on_place_activate(GtkMenuItem *item, gpointer user_data)
 {
     const gchar *uri = (const gchar *)user_data;
     GError *error    = NULL;
-    gchar  *command;
+    gchar *argv[] = { (gchar *)"exo-open", (gchar *)"--launch",
+                      (gchar *)"FileManager", (gchar *)uri, NULL };
 
-    command = g_strdup_printf("exo-open --launch FileManager '%s'", uri);
-
-    if (!g_spawn_command_line_async(command, &error)) {
+    if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
+                       NULL, NULL, NULL, &error)) {
         g_warning(
                 "Failed to open location: %s",
                 error ? error->message : "Unknown error"
@@ -66,7 +67,6 @@ on_place_activate(GtkMenuItem *item, gpointer user_data)
         }
     }
 
-    g_free(command);
 }
 
 /* Launch an AppImage directly, prompting to set the executable bit first
@@ -703,20 +703,26 @@ on_mount_ready(GObject *source, GAsyncResult *result, gpointer user_data)
 
     /* Now mounted — open the mount root in the file manager */
     {
-        GMount *mount   = g_volume_get_mount(volume);
-        GFile  *root    = g_mount_get_root(mount);
-        gchar  *uri     = g_file_get_uri(root);
-        gchar  *command = g_strdup_printf(
-                "exo-open --launch FileManager '%s'", uri
-            );
-        GError *spawn_error = NULL;
-
-        g_spawn_command_line_async(command, &spawn_error);
-        if (spawn_error) g_error_free(spawn_error);
-
-        g_free(command);
-        g_free(uri);
-        g_object_unref(root);
+        GMount *mount = g_volume_get_mount(volume);
+        if (mount == NULL) {
+            g_warning("Volume mount reported success but no mount was available");
+            return;
+        }
+        GFile *root = g_mount_get_root(mount);
+        if (root != NULL) {
+            gchar *uri = g_file_get_uri(root);
+            gchar *argv[] = { (gchar *)"exo-open", (gchar *)"--launch",
+                              (gchar *)"FileManager", uri, NULL };
+            GError *spawn_error = NULL;
+            if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
+                               NULL, NULL, NULL, &spawn_error)) {
+                g_warning("Failed to open mounted volume: %s",
+                          spawn_error ? spawn_error->message : "unknown");
+                g_clear_error(&spawn_error);
+            }
+            g_free(uri);
+            g_object_unref(root);
+        }
         g_object_unref(mount);
     }
 }

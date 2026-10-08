@@ -2,8 +2,8 @@
 
 # Build configuration
 CC = gcc
-CFLAGS = -Wall -fPIC $(shell pkg-config --cflags gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 garcon-1)
-LIBS = $(shell pkg-config --libs gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 garcon-1)
+CFLAGS = -Wall -fPIC $(shell pkg-config --cflags gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 garcon-1 exo-2)
+LIBS = $(shell pkg-config --libs gtk+-3.0 libxfce4panel-2.0 libxfce4ui-2 garcon-1 exo-2)
 LDFLAGS = -shared -Wl,--export-dynamic
 
 # Installation paths
