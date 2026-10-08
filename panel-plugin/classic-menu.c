@@ -25,6 +25,8 @@ typedef struct {
     GtkWidget        *system_item;
 
     GarconMenu       *garcon_menu;
+    guint             reload_idle_id;
+    gboolean          reloading;
     ClassicMenuConfig config;
 }
 ClassicMenuPlugin;
@@ -144,6 +146,60 @@ on_icon_button_clicked(GtkButton *button, gpointer user_data)
     gtk_widget_destroy(chooser);
 }
 
+/* Garcon emits reload-required when desktop menu configuration changes.
+ * Coalesce changes and rebuild outside signal emission. */
+static gboolean
+classic_menu_reload_idle(gpointer data)
+{
+    ClassicMenuPlugin *menu = data;
+    menu->reload_idle_id = 0;
+    menu->reloading = TRUE;
+    /* Destroy the old GTK menus before reloading the Garcon element tree. */
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->applications_item), NULL);
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->system_item), NULL);
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->applications_item),
+                              build_applications_menu(&menu->garcon_menu));
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->system_item),
+                              build_system_menu(&menu->garcon_menu));
+    menu->reloading = FALSE;
+    return G_SOURCE_REMOVE;
+}
+
+static void
+on_garcon_reload_required(GarconMenu *garcon, gpointer user_data)
+{
+    ClassicMenuPlugin *menu = user_data;
+    if (!menu->reloading && menu->reload_idle_id == 0)
+        menu->reload_idle_id = g_idle_add(classic_menu_reload_idle, menu);
+}
+
+/* Use an already-installed XDG menu editor; no parallel editor implementation. */
+static void
+on_edit_menu_clicked(GtkButton *button, gpointer user_data)
+{
+    const gchar *editor = NULL;
+    gchar *path = g_find_program_in_path("menulibre");
+    if (path != NULL) {
+        editor = "menulibre";
+        g_free(path);
+    } else {
+        path = g_find_program_in_path("alacarte");
+        if (path != NULL) {
+            editor = "alacarte";
+            g_free(path);
+        }
+    }
+    if (editor != NULL) {
+        gchar *argv[] = { (gchar *)editor, NULL };
+        GError *error = NULL;
+        if (!g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH,
+                           NULL, NULL, NULL, &error)) {
+            g_warning("Cannot open menu editor: %s", error->message);
+            g_clear_error(&error);
+        }
+    }
+}
+
 /* ── Properties dialog ──────────────────────────────────────────────────── */
 
 static void
@@ -174,6 +230,7 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
     GtkWidget *label;
     GtkWidget *combo;
     GtkWidget *icon_button;
+    GtkWidget *editor_button;
 
     xfce_panel_plugin_block_menu(plugin);
 
@@ -226,6 +283,21 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
     g_signal_connect(icon_button, "clicked",
                      G_CALLBACK(on_icon_button_clicked), menu);
 
+    editor_button = gtk_button_new_with_label("Edit Applications Menu...");
+    gtk_grid_attach(GTK_GRID(grid), editor_button, 1, 2, 1, 1);
+    g_signal_connect(editor_button, "clicked",
+                     G_CALLBACK(on_edit_menu_clicked), menu);
+    {
+        gchar *ml = g_find_program_in_path("menulibre");
+        gchar *al = g_find_program_in_path("alacarte");
+        gtk_widget_set_sensitive(editor_button, ml != NULL || al != NULL);
+        if (ml == NULL && al == NULL)
+            gtk_widget_set_tooltip_text(editor_button,
+                  "Install MenuLibre or Alacarte to edit application menus");
+        g_free(ml);
+        g_free(al);
+    }
+
     g_signal_connect(
             G_OBJECT(combo), "changed",
             G_CALLBACK(on_drilldown_changed),
@@ -247,16 +319,6 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
 }
 
 /* ── Plugin construction ────────────────────────────────────────────────── */
-
-static void
-on_places_item_activate(GtkMenuItem *item, gpointer user_data)
-{
-    GtkWidget *places_menu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(item));
-    if (places_menu != NULL) {
-        g_object_set_data(G_OBJECT(places_menu), "activated-time",
-                          GUINT_TO_POINTER(gtk_get_current_event_time()));
-    }
-}
 
 static void
 classic_menu_construct(XfcePanelPlugin *plugin)
@@ -297,6 +359,10 @@ classic_menu_construct(XfcePanelPlugin *plugin)
             menu->applications_item
         );
 
+    if (menu->garcon_menu != NULL)
+        g_signal_connect(menu->garcon_menu, "reload-required",
+                         G_CALLBACK(on_garcon_reload_required), menu);
+
     /* Places */
     menu->places_item = gtk_menu_item_new_with_label("Places");
     places_menu       = build_places_menu(&menu->config);
@@ -304,8 +370,6 @@ classic_menu_construct(XfcePanelPlugin *plugin)
             GTK_MENU_ITEM(menu->places_item),
             places_menu
         );
-    g_signal_connect(G_OBJECT(menu->places_item), "activate",
-                     G_CALLBACK(on_places_item_activate), NULL);
     gtk_menu_shell_append(
             GTK_MENU_SHELL(menu->menubar),
             menu->places_item
@@ -352,6 +416,8 @@ classic_menu_construct(XfcePanelPlugin *plugin)
 static void
 classic_menu_free(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
 {
+    if (menu->reload_idle_id != 0)
+        g_source_remove(menu->reload_idle_id);
     if (menu->garcon_menu != NULL) {
         g_object_unref(menu->garcon_menu);
     }
