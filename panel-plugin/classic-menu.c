@@ -27,6 +27,8 @@ typedef struct {
     GarconMenu       *garcon_menu;
     guint             reload_idle_id;
     gboolean          reloading;
+    GFileMonitor      *bookmarks_monitor;
+    guint              bookmarks_reload_id;
     ClassicMenuConfig config;
 }
 ClassicMenuPlugin;
@@ -36,6 +38,11 @@ ClassicMenuPlugin;
 #define KEY_DRILLDOWN_MODE  "drilldown-mode"
 #define KEY_ICON_NAME       "applications-icon"
 #define DEFAULT_ICON_NAME   "start-here"
+#define KEY_SHOW_APPS       "show-applications"
+#define KEY_SHOW_PLACES     "show-places"
+#define KEY_SHOW_SYSTEM     "show-system"
+#define KEY_SHOW_ICON       "show-applications-icon"
+#define KEY_ICON_SIZE       "menu-icon-size"
 
 /* Forward declarations */
 static void     classic_menu_construct(          XfcePanelPlugin *plugin);
@@ -54,6 +61,11 @@ classic_menu_config_load(ClassicMenuPlugin *menu)
 
     /* Sensible defaults */
     menu->config.drilldown_mode = DRILLDOWN_FOLDERS_ONLY;
+    menu->config.show_applications = TRUE;
+    menu->config.show_places = TRUE;
+    menu->config.show_system = TRUE;
+    menu->config.show_icon = TRUE;
+    menu->config.icon_size = 16;
     menu->icon_name = g_strdup(DEFAULT_ICON_NAME);
 
     path = xfce_panel_plugin_lookup_rc_file(menu->plugin);
@@ -78,6 +90,11 @@ classic_menu_config_load(ClassicMenuPlugin *menu)
     menu->config.drilldown_mode = (DrillDownMode)
         xfce_rc_read_int_entry(rc, KEY_DRILLDOWN_MODE, DRILLDOWN_FOLDERS_ONLY);
 
+    menu->config.show_applications = xfce_rc_read_bool_entry(rc, KEY_SHOW_APPS, TRUE);
+    menu->config.show_places = xfce_rc_read_bool_entry(rc, KEY_SHOW_PLACES, TRUE);
+    menu->config.show_system = xfce_rc_read_bool_entry(rc, KEY_SHOW_SYSTEM, TRUE);
+    menu->config.show_icon = xfce_rc_read_bool_entry(rc, KEY_SHOW_ICON, TRUE);
+    menu->config.icon_size = CLAMP(xfce_rc_read_int_entry(rc, KEY_ICON_SIZE, 16), 12, 48);
     xfce_rc_close(rc);
 }
 
@@ -102,6 +119,11 @@ classic_menu_config_save(ClassicMenuPlugin *menu)
     xfce_rc_write_int_entry(rc, KEY_DRILLDOWN_MODE,
                             (gint) menu->config.drilldown_mode);
     xfce_rc_write_entry(rc, KEY_ICON_NAME, menu->icon_name);
+    xfce_rc_write_bool_entry(rc, KEY_SHOW_APPS, menu->config.show_applications);
+    xfce_rc_write_bool_entry(rc, KEY_SHOW_PLACES, menu->config.show_places);
+    xfce_rc_write_bool_entry(rc, KEY_SHOW_SYSTEM, menu->config.show_system);
+    xfce_rc_write_bool_entry(rc, KEY_SHOW_ICON, menu->config.show_icon);
+    xfce_rc_write_int_entry(rc, KEY_ICON_SIZE, menu->config.icon_size);
 
     xfce_rc_close(rc);
 }
@@ -116,7 +138,8 @@ classic_menu_update_icon(ClassicMenuPlugin *menu)
         gtk_image_set_from_icon_name(GTK_IMAGE(menu->applications_icon),
                                      menu->icon_name, GTK_ICON_SIZE_MENU);
     }
-    gtk_image_set_pixel_size(GTK_IMAGE(menu->applications_icon), 18);
+    gtk_image_set_pixel_size(GTK_IMAGE(menu->applications_icon), menu->config.icon_size);
+    gtk_widget_set_visible(menu->applications_icon, menu->config.show_icon);
 }
 
 static void
@@ -200,6 +223,79 @@ on_edit_menu_clicked(GtkButton *button, gpointer user_data)
     }
 }
 
+static void
+classic_menu_apply_visibility(ClassicMenuPlugin *menu)
+{
+    gtk_widget_set_visible(menu->applications_item, menu->config.show_applications);
+    gtk_widget_set_visible(menu->places_item, menu->config.show_places);
+    gtk_widget_set_visible(menu->system_item, menu->config.show_system);
+    gtk_widget_set_visible(menu->applications_icon, menu->config.show_icon);
+}
+
+static void
+on_visibility_toggled(GtkToggleButton *button, gpointer user_data)
+{
+    ClassicMenuPlugin *menu = user_data;
+    const gchar *which = g_object_get_data(G_OBJECT(button), "menu-section");
+    gboolean active = gtk_toggle_button_get_active(button);
+    if (g_strcmp0(which, "applications") == 0)
+        menu->config.show_applications = active;
+    else if (g_strcmp0(which, "places") == 0)
+        menu->config.show_places = active;
+    else if (g_strcmp0(which, "system") == 0)
+        menu->config.show_system = active;
+    else if (g_strcmp0(which, "icon") == 0)
+        menu->config.show_icon = active;
+    classic_menu_apply_visibility(menu);
+    classic_menu_config_save(menu);
+}
+
+static void
+on_icon_size_changed(GtkSpinButton *spin, gpointer user_data)
+{
+    ClassicMenuPlugin *menu = user_data;
+    menu->config.icon_size = gtk_spin_button_get_value_as_int(spin);
+    classic_menu_update_icon(menu);
+    classic_menu_config_save(menu);
+}
+
+/* Never replace a submenu while GTK is displaying it. A bookmarks event
+ * queues a refresh; if Places is open, wait for deactivation. */
+static gboolean
+bookmarks_refresh_idle(gpointer data)
+{
+    ClassicMenuPlugin *menu = data;
+    menu->bookmarks_reload_id = 0;
+    GtkWidget *current = gtk_menu_item_get_submenu(GTK_MENU_ITEM(menu->places_item));
+    if (current != NULL && gtk_widget_get_mapped(current))
+        return G_SOURCE_REMOVE;
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(menu->places_item),
+                              build_places_menu(&menu->config));
+    return G_SOURCE_REMOVE;
+}
+
+static void
+on_places_deactivate(GtkWidget *widget, gpointer user_data)
+{
+    ClassicMenuPlugin *menu = user_data;
+    if (menu->bookmarks_reload_id != 0)
+        return;
+    /* Rebuild only after the menu has finished being dismissed. */
+    menu->bookmarks_reload_id = g_idle_add(bookmarks_refresh_idle, menu);
+}
+
+static void
+on_bookmarks_changed(GFileMonitor *monitor, GFile *file, GFile *other_file,
+                     GFileMonitorEvent event, gpointer user_data)
+{
+    ClassicMenuPlugin *menu = user_data;
+    GtkWidget *current = gtk_menu_item_get_submenu(GTK_MENU_ITEM(menu->places_item));
+    if (current != NULL && gtk_widget_get_mapped(current))
+        return; /* The deactivate callback refreshes it safely. */
+    if (menu->bookmarks_reload_id == 0)
+        menu->bookmarks_reload_id = g_idle_add(bookmarks_refresh_idle, menu);
+}
+
 /* ── Properties dialog ──────────────────────────────────────────────────── */
 
 static void
@@ -231,6 +327,8 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
     GtkWidget *combo;
     GtkWidget *icon_button;
     GtkWidget *editor_button;
+    GtkWidget *check;
+    GtkWidget *spin;
 
     xfce_panel_plugin_block_menu(plugin);
 
@@ -297,6 +395,25 @@ classic_menu_configure(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
         g_free(ml);
         g_free(al);
     }
+
+    const gchar *sections[] = {"applications", "places", "system", "icon"};
+    const gchar *titles[] = {"Show Applications", "Show Places", "Show System", "Show Applications icon"};
+    gboolean states[] = {menu->config.show_applications, menu->config.show_places,
+                         menu->config.show_system, menu->config.show_icon};
+    for (gint i = 0; i < 4; i++) {
+        check = gtk_check_button_new_with_label(titles[i]);
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(check), states[i]);
+        g_object_set_data(G_OBJECT(check), "menu-section", (gpointer)sections[i]);
+        gtk_grid_attach(GTK_GRID(grid), check, 0, i + 3, 2, 1);
+        g_signal_connect(check, "toggled", G_CALLBACK(on_visibility_toggled), menu);
+    }
+    label = gtk_label_new("Applications icon size:");
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0);
+    gtk_grid_attach(GTK_GRID(grid), label, 0, 7, 1, 1);
+    spin = gtk_spin_button_new_with_range(12, 48, 2);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin), menu->config.icon_size);
+    gtk_grid_attach(GTK_GRID(grid), spin, 1, 7, 1, 1);
+    g_signal_connect(spin, "value-changed", G_CALLBACK(on_icon_size_changed), menu);
 
     g_signal_connect(
             G_OBJECT(combo), "changed",
@@ -388,6 +505,21 @@ classic_menu_construct(XfcePanelPlugin *plugin)
         );
 
     gtk_widget_show_all(menu->menubar);
+    classic_menu_apply_visibility(menu);
+    {
+        GtkWidget *places_submenu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(menu->places_item));
+        g_signal_connect(places_submenu, "deactivate", G_CALLBACK(on_places_deactivate), menu);
+    }
+    /* Watch the parent directory so atomic bookmark-file replacement is noticed. */
+    {
+        gchar *directory = g_build_filename(g_get_user_config_dir(), "gtk-3.0", NULL);
+        GFile *dir = g_file_new_for_path(directory);
+        menu->bookmarks_monitor = g_file_monitor_directory(dir, G_FILE_MONITOR_NONE, NULL, NULL);
+        if (menu->bookmarks_monitor != NULL)
+            g_signal_connect(menu->bookmarks_monitor, "changed", G_CALLBACK(on_bookmarks_changed), menu);
+        g_object_unref(dir);
+        g_free(directory);
+    }
 
     /* Plugin signals */
     g_signal_connect(
@@ -418,6 +550,9 @@ classic_menu_free(XfcePanelPlugin *plugin, ClassicMenuPlugin *menu)
 {
     if (menu->reload_idle_id != 0)
         g_source_remove(menu->reload_idle_id);
+    if (menu->bookmarks_reload_id != 0)
+        g_source_remove(menu->bookmarks_reload_id);
+    g_clear_object(&menu->bookmarks_monitor);
     if (menu->garcon_menu != NULL) {
         g_object_unref(menu->garcon_menu);
     }
