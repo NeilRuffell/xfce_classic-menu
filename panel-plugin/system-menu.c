@@ -2,6 +2,8 @@
 
 #include "classic-menu.h"
 #include <garcon/garcon.h>
+#define WNCK_I_KNOW_THIS_IS_UNSTABLE
+#include <libwnck/libwnck.h>
 
 /* Create a menu item with icon and label */
 static GtkWidget *
@@ -218,6 +220,18 @@ build_category_submenu(GarconMenu *root, const gchar *category_name)
     return NULL;
 }
 
+/* Use the window-manager interface underlying XFCE's Show Desktop. */
+static void
+on_show_desktop_activate(GtkMenuItem *item, gpointer user_data)
+{
+    WnckScreen *screen = wnck_screen_get_default();
+    if (screen != NULL) {
+        wnck_screen_force_update(screen);
+        wnck_screen_toggle_showing_desktop(
+                screen, !wnck_screen_get_showing_desktop(screen));
+    }
+}
+
 /* Build the System menu */
 GtkWidget *
 build_system_menu(GarconMenu **garcon_menu_ptr)
@@ -278,6 +292,11 @@ build_system_menu(GarconMenu **garcon_menu_ptr)
             G_CALLBACK(on_system_action),
             "xfce4-about"
         );
+    gtk_menu_shell_append(GTK_MENU_SHELL(submenu), item);
+
+    item = create_menu_item_with_icon("Show Desktop", "user-desktop");
+    g_signal_connect(item, "activate",
+                     G_CALLBACK(on_show_desktop_activate), NULL);
     gtk_menu_shell_append(GTK_MENU_SHELL(submenu), item);
 
     /* ── Session ──────────────────────────────────────────────────────── */
