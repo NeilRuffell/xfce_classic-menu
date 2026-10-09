@@ -1,0 +1,22 @@
+Source: xfce4-classic-menu-plugin
+Section: xfce
+Priority: optional
+Maintainer: Neil Ruffell <neilruffell@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+ pkg-config,
+ libgtk-3-dev,
+ libxfce4panel-2.0-dev,
+ libxfce4ui-2-dev,
+ libgarcon-1-0-dev,
+ libexo-2-dev,
+ libwnck-3-dev
+Standards-Version: 4.6.2
+Homepage: https://github.com/NeilRuffell/xfce_classic-menu
+Rules-Requires-Root: no
+
+Package: xfce4-classic-menu-plugin
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: GNOME 2-style Applications Places System menu for the XFCE panel
+ An XFCE panel plugin providing classic Applications, Places and System
+ menus, with recent documents, bookmarks, launchers, and configurable icons.
