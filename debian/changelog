@@ -1,4 +1,4 @@
-xfce4-classic-menu-plugin (1.0.0-1~ppa1~ubuntu24.04.1) noble; urgency=medium
+xfce4-classic-menu-plugin (1.0.0+ppa1~ubuntu24.04.1) noble; urgency=medium
 
   * Initial PPA source package for XFCE Classic Menu.
   * Preserve upstream credits and copyright.
