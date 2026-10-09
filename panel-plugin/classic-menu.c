@@ -454,8 +454,21 @@ classic_menu_construct(XfcePanelPlugin *plugin)
 
     classic_menu_config_load(menu);
 
-    /* Create menubar */
+    /* Create menubar. Clear only the menubar's theme background so the
+     * panel paints behind it; leave dropdown menus and item states themed. */
     menu->menubar = gtk_menu_bar_new();
+    {
+        GtkCssProvider *provider = gtk_css_provider_new();
+        gtk_css_provider_load_from_data(provider,
+                "menubar { background-color: transparent; "
+                "background-image: none; border: none; box-shadow: none; }",
+                -1, NULL);
+        gtk_style_context_add_provider(
+                gtk_widget_get_style_context(menu->menubar),
+                GTK_STYLE_PROVIDER(provider),
+                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        g_object_unref(provider);
+    }
     gtk_container_add(GTK_CONTAINER(plugin), menu->menubar);
     xfce_panel_plugin_add_action_widget(plugin, menu->menubar);
 
