@@ -8,7 +8,7 @@ LDFLAGS = -shared -Wl,--export-dynamic
 
 # Installation paths
 PREFIX ?= /usr
-PLUGIN_DIR = $(PREFIX)/lib/xfce4/panel/plugins
+PLUGIN_DIR = $(shell pkg-config --variable=libdir libxfce4panel-2.0)/xfce4/panel/plugins
 DESKTOP_DIR = $(PREFIX)/share/xfce4/panel/plugins
 
 # Source files
