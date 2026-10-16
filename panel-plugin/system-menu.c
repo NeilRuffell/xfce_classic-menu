@@ -2,6 +2,7 @@
 
 #include "classic-menu.h"
 #include <garcon/garcon.h>
+#include <libxfce4util/libxfce4util.h>
 #define WNCK_I_KNOW_THIS_IS_UNSTABLE
 #include <libwnck/libwnck.h>
 
@@ -220,6 +221,54 @@ build_category_submenu(GarconMenu *root, const gchar *category_name)
     return NULL;
 }
 
+/* Read the exact menu definition used by Xfce Settings Manager.
+ * Its category grouping comes from the installed .menu and .desktop files,
+ * including XDG user overrides, rather than hardcoded application names. */
+static GtkWidget *
+build_settings_manager_submenu(void)
+{
+    gchar *path;
+    GarconMenu *settings_menu;
+    GtkWidget *gtk_submenu;
+    GList *elements;
+    GError *error = NULL;
+
+    path = xfce_resource_lookup(
+            XFCE_RESOURCE_CONFIG, "menus/xfce-settings-manager.menu"
+        );
+    if (path == NULL) {
+        g_warning("Could not locate xfce-settings-manager.menu");
+        return NULL;
+    }
+
+    settings_menu = garcon_menu_new_for_path(path);
+    g_free(path);
+
+    if (!garcon_menu_load(settings_menu, NULL, &error)) {
+        g_warning("Could not load XFCE Settings Manager menu: %s",
+                  error != NULL ? error->message : "Unknown error");
+        g_clear_error(&error);
+        g_object_unref(settings_menu);
+        return NULL;
+    }
+
+    elements = garcon_menu_get_elements(settings_menu);
+    gtk_submenu = gtk_menu_new();
+    gtk_menu_set_reserve_toggle_size(GTK_MENU(gtk_submenu), FALSE);
+    populate_flat_menu(gtk_submenu, elements);
+
+    if (gtk_container_get_children(GTK_CONTAINER(gtk_submenu)) == NULL) {
+        gtk_widget_destroy(gtk_submenu);
+        g_object_unref(settings_menu);
+        return NULL;
+    }
+
+    /* Activation callbacks reference GarconMenuItems owned by this tree. */
+    g_object_set_data_full(G_OBJECT(gtk_submenu), "settings-garcon-menu",
+                           settings_menu, g_object_unref);
+    return gtk_submenu;
+}
+
 /* Use the window-manager interface underlying XFCE's Show Desktop. */
 static void
 on_show_desktop_activate(GtkMenuItem *item, gpointer user_data)
@@ -252,12 +301,12 @@ build_system_menu(GarconMenu **garcon_menu_ptr)
         );
     gtk_menu_shell_append(GTK_MENU_SHELL(submenu), item);
 
-    /* ── Preferences (garcon "Settings" category) ─────────────────────── */
+    /* ── Preferences (Xfce Settings Manager menu definition) ─────────── */
 
     item = gtk_separator_menu_item_new();
     gtk_menu_shell_append(GTK_MENU_SHELL(submenu), item);
 
-    category_submenu = build_category_submenu(*garcon_menu_ptr, "Settings");
+    category_submenu = build_settings_manager_submenu();
     if (category_submenu != NULL) {
         item = create_menu_item_with_icon("Preferences", "preferences-other");
         gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), category_submenu);
